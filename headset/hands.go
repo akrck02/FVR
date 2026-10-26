@@ -3,6 +3,8 @@ package headset
 import (
 	"math"
 
+	"github.com/akrck02/FVR/gamepad"
+	"github.com/akrck02/FVR/motion"
 	"github.com/akrck02/go-meta-quest/mirror"
 	"github.com/akrck02/go-meta-quest/place"
 	"github.com/akrck02/go-meta-quest/pointer"
@@ -113,4 +115,75 @@ func (wheel *Wheel) Push(seconds float64) float32 {
 	}
 	wheel.notches -= math.Copysign(step, wheel.notches)
 	return float32(math.Copysign(1, wheel.notches))
+}
+
+// WithPads adds game pads with motion sensors, one for each hand (gamepad.Reader.Read), to the
+// controllers the keys and the mouse make. A pad is its hand: held in an arm beside the body
+// (motion.Hand) and pointing where the pad points. The sticks, triggers and buttons of both add to
+// the keys', each to the controller it stands for: the left stick, ZL, L and the d-pad (down X, up
+// Y) to the left one; the right stick, ZR, R and the face buttons to the right one, the bottom one
+// A and the right one B, and on a whole pad the left one X and the top one Y. A pad's menu button
+// (gamepad.State.MenuButton) going down since earlier is the menu. A pad that is not connected
+// changes nothing.
+func WithPads(controls openxr.Controls, pads, earlier [2]gamepad.State, head graphics.Pose) openxr.Controls {
+	hands := [2]*openxr.Hand{gamepad.LeftHand: &controls.Left, gamepad.RightHand: &controls.Right}
+	for index, pad := range pads {
+		if !pad.Connected {
+			continue
+		}
+		side := float32(1)
+		if index == gamepad.LeftHand {
+			side = -1
+		}
+		hand := motion.Hand(head, pad.Rotation, side)
+		held := hands[index]
+		held.Grip, held.Aim, held.Tracked = hand, hand, true
+		addButtons(&controls, pad)
+		controls.Menu = controls.Menu || pad.Pressed(pad.MenuButton(), earlier[index])
+	}
+	return controls
+}
+
+// addButtons adds a pad's sticks, triggers and buttons to the controllers they stand for.
+func addButtons(controls *openxr.Controls, pad gamepad.State) {
+	left, right := &controls.Left, &controls.Right
+	left.StickX, left.StickY = addAxis(left.StickX, pad.Axes[gamepad.LeftX]), addAxis(left.StickY, pad.Axes[gamepad.LeftY])
+	right.StickX, right.StickY = addAxis(right.StickX, pad.Axes[gamepad.RightX]), addAxis(right.StickY, pad.Axes[gamepad.RightY])
+	right.Trigger = max(right.Trigger, pad.Axes[gamepad.RightTrigger])
+	left.Trigger = max(left.Trigger, pad.Axes[gamepad.LeftTrigger])
+	right.Squeeze = max(right.Squeeze, pressure(pad.Buttons[gamepad.RightShoulder]))
+	left.Squeeze = max(left.Squeeze, pressure(pad.Buttons[gamepad.LeftShoulder]))
+	buttons := pad.Buttons
+	right.Lower = right.Lower || buttons[gamepad.South]
+	right.Upper = right.Upper || buttons[gamepad.East]
+	left.Lower = left.Lower || buttons[gamepad.West] || buttons[gamepad.Down]
+	left.Upper = left.Upper || buttons[gamepad.North] || buttons[gamepad.Up]
+	left.StickClick = left.StickClick || buttons[gamepad.LeftStick]
+	right.StickClick = right.StickClick || buttons[gamepad.RightStick]
+}
+
+// addAxis is a stick's axis pushed by both the keys and a pad, kept within -1 and 1.
+func addAxis(keys, pad float32) float32 {
+	return float32(math.Max(-1, math.Min(1, float64(keys+pad))))
+}
+
+// lookRest is how far a pad's left stick moves before it turns the head: a Joy-Con's stick let go
+// often rests a little off the middle.
+const lookRest = 0.15
+
+// LookWithPads turns the head with the pads' left sticks, as the arrows turn it (seconds of it, at
+// radiansPerSecond pushed all the way), and takes those sticks out of the pads: in the window the
+// left stick is the camera, not the controllers' left stick.
+func LookWithPads(head *Head, pads *[2]gamepad.State, seconds float64) {
+	for index := range pads {
+		pad := &pads[index]
+		if !pad.Connected {
+			continue
+		}
+		x, y := float64(pad.Axes[gamepad.LeftX]), float64(pad.Axes[gamepad.LeftY])
+		if math.Hypot(x, y) > lookRest {
+			head.Turn(-x*radiansPerSecond*seconds, y*radiansPerSecond*seconds)
+		}
+		pad.Axes[gamepad.LeftX], pad.Axes[gamepad.LeftY] = 0, 0
+	}
 }

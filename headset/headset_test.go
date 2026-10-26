@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/akrck02/FVR/gamepad"
 	"github.com/akrck02/go-meta-quest/pointer"
 	"github.com/akrck02/go-renderer/graphics"
 	"github.com/akrck02/go-renderer/input"
@@ -147,5 +148,78 @@ func TestAWheelNotchPushesTheStickUntilItIsScrolled(test *testing.T) {
 	wheel.Add(-2)
 	if wheel.Push(0.02) != -1 {
 		test.Fatal("turning the wheel down does not push the stick down")
+	}
+}
+
+func TestAConnectedPadIsTheRightHandAndAddsItsButtons(test *testing.T) {
+	head := StandingHead().Pose()
+	keys := Keys{Forward: true}
+	mouse := RightHand(head, Eyes(head, 800, 800)[0], 0.9, 0.5, nil)
+	controls := keys.Controls(LeftHand(head, false), mouse)
+	var pads [2]gamepad.State
+	pad := gamepad.State{Connected: true, Kind: gamepad.Whole, Rotation: graphics.QuaternionAroundY(math.Pi / 2)}
+	pad.Axes[gamepad.RightTrigger], pad.Axes[gamepad.LeftY] = 0.8, -0.5
+	pad.Buttons[gamepad.South], pad.Buttons[gamepad.North], pad.Buttons[gamepad.RightShoulder] = true, true, true
+	pad.Buttons[gamepad.Start] = true
+	pads[gamepad.RightHand] = pad
+	got := WithPads(controls, pads, [2]gamepad.State{}, head)
+	if ahead := forward(got.Right.Aim); ahead[0] > -0.99 {
+		test.Fatalf("the right hand points %v, want where the pad does (left)", ahead)
+	}
+	if got.Right.Trigger != 0.8 || got.Right.Squeeze != 1 || !got.Right.Lower || !got.Left.Upper || !got.Menu {
+		test.Fatalf("buttons %+v", got)
+	}
+	if got.Left.StickY != 0.5 { // W pushes up all the way, the pad pulls back half
+		test.Fatalf("left stick %v", got.Left.StickY)
+	}
+	if got.Left.Grip != controls.Left.Grip {
+		test.Fatal("the left hand moved without a pad")
+	}
+	if held := WithPads(controls, pads, pads, head); held.Menu {
+		test.Fatal("a menu button held down opened the menu again")
+	}
+	if WithPads(controls, [2]gamepad.State{}, [2]gamepad.State{}, head) != controls {
+		test.Fatal("pads that are not there changed the controls")
+	}
+}
+
+func TestTwoJoyConAreTheTwoHands(test *testing.T) {
+	head := StandingHead().Pose()
+	controls := Keys{}.Controls(LeftHand(head, false), RightHand(head, Eyes(head, 800, 800)[0], 0.5, 0.5, nil))
+	var pads [2]gamepad.State
+	pads[gamepad.LeftHand] = gamepad.State{Connected: true, Kind: gamepad.LeftJoyCon, Rotation: graphics.QuaternionAroundY(math.Pi / 2)}
+	pads[gamepad.LeftHand].Buttons[gamepad.Down] = true
+	pads[gamepad.LeftHand].Axes[gamepad.LeftTrigger] = 1
+	pads[gamepad.RightHand] = gamepad.State{Connected: true, Kind: gamepad.RightJoyCon, Rotation: graphics.QuaternionAroundY(-math.Pi / 2)}
+	pads[gamepad.RightHand].Buttons[gamepad.East] = true
+	got := WithPads(controls, pads, [2]gamepad.State{}, head)
+	if forward(got.Left.Aim)[0] > -0.99 || forward(got.Right.Aim)[0] < 0.99 {
+		test.Fatalf("the left hand points %v and the right %v", forward(got.Left.Aim), forward(got.Right.Aim))
+	}
+	if got.Left.Grip.Position[0] >= 0 || got.Right.Grip.Position[0] <= 0 {
+		test.Fatalf("hands at %v and %v", got.Left.Grip.Position, got.Right.Grip.Position)
+	}
+	if !got.Left.Lower || got.Left.Trigger != 1 || !got.Right.Upper || got.Menu {
+		test.Fatalf("buttons %+v", got)
+	}
+}
+
+func TestAPadsLeftStickTurnsTheHeadAndNotTheControllers(test *testing.T) {
+	head := StandingHead()
+	var pads [2]gamepad.State
+	pads[gamepad.LeftHand] = gamepad.State{Connected: true, Kind: gamepad.LeftJoyCon}
+	pads[gamepad.LeftHand].Axes[gamepad.LeftX], pads[gamepad.LeftHand].Axes[gamepad.LeftY] = 1, 0.5
+	LookWithPads(&head, &pads, 0.5)
+	if head.Yaw >= 0 || head.Pitch <= 0 {
+		test.Fatalf("yaw %v pitch %v, want turned right and up", head.Yaw, head.Pitch)
+	}
+	if pads[gamepad.LeftHand].Axes[gamepad.LeftX] != 0 || pads[gamepad.LeftHand].Axes[gamepad.LeftY] != 0 {
+		test.Fatal("the stick still reaches the controllers")
+	}
+	resting := StandingHead()
+	pads[gamepad.LeftHand].Axes[gamepad.LeftX], pads[gamepad.LeftHand].Axes[gamepad.LeftY] = 0.05, 0.07
+	LookWithPads(&resting, &pads, 0.5)
+	if resting != StandingHead() {
+		test.Fatalf("a stick at rest turned the head to %+v", resting)
 	}
 }

@@ -1,8 +1,9 @@
 // The playground's first program: go-meta-quest's panel demo, run in a window instead of the
-// headset. A board floats in front of you over go-renderer's sample island; the mouse is the right
-// controller (it points where the cursor is, a beam showing where, and its left button is the
-// trigger: a click lights a tile or puts it out), the keys are the sticks and the buttons, and the
-// right button held turns the head.
+// headset. A board floats in front of you over go-renderer's sample island; either hand points at
+// it, a beam showing where, and its trigger lights a tile or puts it out. The mouse is the right
+// controller (it points where the cursor is, and its left button is the trigger) unless pads with
+// motion sensors are the hands, the keys are the sticks and the buttons, and the right button held
+// turns the head.
 //
 //	go run ./cmd/playground
 //	go run ./cmd/playground -capture board.png
@@ -40,7 +41,13 @@ const help = `FVR · playground
   Tab                palma izquierda hacia la cara
   M                  menú
   V                  un ojo o los dos
-  Esc                salir`
+  Esc                salir
+
+  Con mandos con giroscopio por Bluetooth, cada mando es su mano y apunta donde apunta él: dos
+  Joy-Con son las dos manos, un Pro Controller o un 8BitDo en modo Switch la derecha. Captura
+  (Joy-Con L), Home (Joy-Con R) o − (mando entero) lo centra hacia donde miras; ZR/ZL gatillos,
+  R/L agarres, el stick izquierdo gira la cabeza (la cámara), y el derecho y los botones como los
+  del casco.`
 
 // boardPose is where the board stands in the room: a step and a half ahead, its middle a little
 // under a standing person's eyes, facing them.
@@ -51,8 +58,9 @@ type demo struct {
 	explorer *explore.Explorer
 	board    *board
 	pointer  pointer.Pointer
-	beam     *pointer.Beam
-	panel    *input.State // the board's interface's own input: its cursor and button
+	beams    [2]*pointer.Beam // a beam on each hand, by app.LeftHand and app.RightHand
+	pointing int              // the hand the board follows
+	panel    *input.State     // the board's interface's own input: its cursor and button
 	scene    *gles.SceneRenderer
 	flat     *gles.FlatRenderer
 	stale    bool // the board's picture changed since it was last drawn
@@ -67,9 +75,11 @@ func main() {
 	fmt.Fprintln(os.Stderr, help)
 
 	world := sample.Island()
-	made := &demo{board: newBoard(), beam: pointer.NewBeam(graphics.Vector{0.4, 0.8, 1, 1}), stale: true, panel: input.NewState()}
+	made := &demo{board: newBoard(), stale: true, panel: input.NewState(), pointing: app.RightHand}
+	made.beams[app.LeftHand] = pointer.NewBeam(graphics.Vector{1, 0.7, 0.4, 1})
+	made.beams[app.RightHand] = pointer.NewBeam(graphics.Vector{0.4, 0.8, 1, 1})
 	made.explorer = explore.New(world, explore.Options{Start: startRig(world), WalkMetresSecond: 3, TurnRadiansSecond: 2})
-	world.Nodes = append(world.Nodes, made.beam.Node)
+	world.Nodes = append(world.Nodes, made.beams[app.LeftHand].Node, made.beams[app.RightHand].Node)
 	options := app.Options{ApplicationName: "Playground", Panels: []app.PanelSize{{Width: boardWidth, Height: boardHeight}}}
 	if err := headset.RunIn(window, options, made.frame); err != nil {
 		log.Fatal(err)
@@ -107,21 +117,33 @@ func (made *demo) frame(frame app.Frame) bool {
 	return true
 }
 
-// point aims the right hand at the board: the beam reaches it, the tile under it lights its border,
-// and a pull of the trigger lights the tile with a buzz.
+// point aims the hands at the board: each beam reaches it, and the board follows one hand (the one
+// on it, the one already there when both are): the tile under it lights its border, and a pull of
+// its trigger lights the tile with a buzz in that hand.
 func (made *demo) point(frame app.Frame) {
-	hand := frame.Hands[app.RightHand]
-	hit, pointing := made.pointer.Update(made.panel, hand, frame.Panels[0], frame.Seconds)
-	made.beam.Place(made.explorer.Rig(), hand, hit.Distance)
+	board := frame.Panels[0]
+	var hits [2]pointer.Hit
+	var on [2]bool
+	for index, hand := range frame.Hands {
+		if hand.Tracked {
+			hits[index], on[index] = pointer.HitPanel(pointer.FromAim(hand.Aim), board)
+		}
+		made.beams[index].Place(made.explorer.Rig(), hand, hits[index].Distance)
+	}
+	if !on[made.pointing] && on[1-made.pointing] {
+		made.pointing = 1 - made.pointing
+	}
+	hand := made.pointing
+	hit, pointing := made.pointer.Update(made.panel, frame.Hands[hand], board, frame.Seconds)
 	if made.board.hover(hit.X, hit.Y, pointing) {
 		made.stale = true
 		if made.board.hovered >= 0 {
-			frame.Vibrate(app.RightHand, 0.15, 10*time.Millisecond)
+			frame.Vibrate(hand, 0.15, 10*time.Millisecond)
 		}
 	}
 	if made.panel.ButtonPressed(input.MouseLeft) && made.board.click() {
 		made.stale = true
-		frame.Vibrate(app.RightHand, 0.6, 40*time.Millisecond)
+		frame.Vibrate(hand, 0.6, 40*time.Millisecond)
 	}
 	made.panel.Feed().EndFrame()
 }

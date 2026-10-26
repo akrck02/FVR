@@ -5,7 +5,11 @@
 `headset.Run`, el adaptador `desktopgl` y `cmd/playground`. Un programa de go-meta-quest corre en
 el ordenador sin cambios.
 
-## 2. Mandos con giroscopio como manos
+## 2. Mandos con giroscopio como manos ✅
+
+Hecho (`gamepad`, `motion`, `headset.WithPads`): dos Joy-Con como las dos manos, o un mando entero
+como la derecha; probado con un 8BitDo Ultimate en modo Switch y con un par de Joy-Con. Queda afinar
+el filtro y el brazo usándolos.
 
 Joy-Con, Pro Controller de Switch o un 8BitDo Ultimate (este solo da giroscopio en modo Switch por
 Bluetooth, donde se presenta como Pro Controller).

@@ -15,8 +15,11 @@ import (
 	"time"
 
 	"github.com/akrck02/FVR/desktopgl"
+	"github.com/akrck02/FVR/gamepad"
 	"github.com/akrck02/go-meta-quest/app"
+	"github.com/akrck02/go-meta-quest/place"
 	"github.com/akrck02/go-renderer/gles"
+	"github.com/akrck02/go-renderer/graphics"
 	"github.com/akrck02/go-renderer/input"
 	"github.com/akrck02/go-renderer/openxr"
 	"github.com/go-gl/glfw/v3.4/glfw"
@@ -122,6 +125,9 @@ type loop struct {
 	pictures []*target
 	composer *composer
 	haptics  *vibrations
+	pads     *gamepad.Reader  // nil without SDL3
+	padsNow  [2]gamepad.State // the pads as last read, by hand
+	padsWere [2]gamepad.State // and the read before
 
 	sideBySide       bool
 	looking          bool    // the right button turns the head
@@ -149,11 +155,15 @@ func newLoop(window *glfw.Window, settings Window, options app.Options) (*loop, 
 			return gles.Framebuffer(picture.framebuffer), nil
 		}))
 	}
+	made.openPads()
 	window.SetScrollCallback(func(_ *glfw.Window, _, notches float64) { made.wheel.Add(notches) })
 	return made, nil
 }
 
 func (made *loop) delete() {
+	if made.pads != nil {
+		made.pads.Close()
+	}
 	for _, eye := range made.eyes {
 		if eye != nil {
 			eye.delete()
@@ -204,6 +214,8 @@ func (made *loop) frame(seconds float64) (app.Frame, error) {
 	}
 	made.viewWas = view
 	made.look(seconds)
+	pads := made.readPads(made.head.Pose())
+	LookWithPads(&made.head, &pads, seconds)
 
 	width, height := window.GetFramebufferSize()
 	render := width > 0 && height > 0 && window.GetAttrib(glfw.Iconified) == 0
@@ -226,12 +238,15 @@ func (made *loop) frame(seconds float64) (app.Frame, error) {
 
 	keys := made.keys(seconds)
 	eye, x, y := made.cursor(eyes)
-	controls := keys.Controls(LeftHand(head, keys.PalmUp), RightHand(head, eye, x, y, made.panels))
-	focused := window.GetAttrib(glfw.Focused) == 1
-	if !focused {
-		controls = openxr.Controls{Left: controls.Left, Right: controls.Right}
-		controls.Left.Trigger, controls.Right.Trigger = 0, 0
+	// The keys and the mouse are the controllers only while the window has them; the pads always,
+	// as the window keeps no hold on them (it may well not be in front while they are held).
+	windowFocused := window.GetAttrib(glfw.Focused) == 1
+	if !windowFocused {
+		keys = Keys{PalmUp: keys.PalmUp}
 	}
+	controls := keys.Controls(LeftHand(head, keys.PalmUp), RightHand(head, eye, x, y, made.panels))
+	controls = WithPads(controls, pads, made.padsWere, head)
+	focused := windowFocused || pads[gamepad.LeftHand].Connected || pads[gamepad.RightHand].Connected
 	controls.Apply(made.state)
 	return app.Frame{Input: made.state, Head: head, HeadTracked: true,
 		Hands: [2]openxr.Hand{controls.Left, controls.Right}, Controls: controls,
@@ -339,10 +354,53 @@ func (made *loop) show(frame app.Frame) error {
 	return nil
 }
 
+// openPads starts reading game pads with motion sensors, when SDL3 is installed: one for each
+// hand (gamepad.Reader).
+func (made *loop) openPads() {
+	pads, err := gamepad.Open()
+	if err != nil {
+		log.Printf("FVR: sin mandos con giroscopio: %v", err)
+		return
+	}
+	made.pads = pads
+	made.haptics.rumble = pads.Rumble
+}
+
+// handNames name the hands, as the program tells the player.
+var handNames = [2]string{gamepad.LeftHand: "izquierda", gamepad.RightHand: "derecha"}
+
+// recenterNames name the button that points each kind of pad ahead.
+var recenterNames = map[gamepad.Kind]string{gamepad.Whole: "−", gamepad.LeftJoyCon: "Captura", gamepad.RightJoyCon: "Home"}
+
+// readPads reads the pads, says when one comes or goes, and points a pad where the head looks when
+// its recenter button goes down.
+func (made *loop) readPads(head graphics.Pose) [2]gamepad.State {
+	if made.pads == nil {
+		return [2]gamepad.State{}
+	}
+	made.padsWere = made.padsNow
+	made.padsNow = made.pads.Read()
+	for hand, pad := range made.padsNow {
+		was := made.padsWere[hand]
+		switch {
+		case pad.Connected && !was.Connected:
+			log.Printf("FVR: %s conectado: es la mano %s. Apúntalo al frente y pulsa %s para centrarlo.",
+				pad.Name, handNames[hand], recenterNames[pad.Kind])
+		case !pad.Connected && was.Connected:
+			log.Printf("FVR: %s desconectado: la mano %s vuelve al teclado y al ratón.", was.Name, handNames[hand])
+		}
+		if pad.Pressed(pad.RecenterButton(), was) {
+			made.pads.Recenter(hand, float64(place.HeadYaw(head)))
+		}
+	}
+	return made.padsNow
+}
+
 // vibrations stand for the controllers' haptics: a hand that shakes shows in the window's title
-// for a moment.
+// for a moment, and the pad in that hand, if there is one, shakes.
 type vibrations struct {
-	until [2]time.Time
+	until  [2]time.Time
+	rumble func(hand int, amplitude float32, duration time.Duration) // the pads', with SDL3
 }
 
 func (shaking *vibrations) Vibrate(hand int, amplitude float32, duration time.Duration) {
@@ -350,6 +408,9 @@ func (shaking *vibrations) Vibrate(hand int, amplitude float32, duration time.Du
 		return
 	}
 	shaking.until[hand] = time.Now().Add(max(duration, vibrationTitleFor))
+	if shaking.rumble != nil {
+		shaking.rumble(hand, amplitude, duration)
+	}
 }
 
 func (shaking *vibrations) title(name string) string {

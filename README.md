@@ -34,19 +34,47 @@ go run ./cmd/playground -capture captura.png   # guarda un fotograma y termina
 
 Las vibraciones se ven en el título de la ventana.
 
+### Con mandos con giroscopio
+
+Los mandos con giroscopio emparejados por Bluetooth hacen de manos: cada uno apunta donde apunta él.
+Hace falta SDL3 (`brew install sdl3`); la mano que no tenga mando sigue con el teclado y el ratón.
+
+- **Dos Joy-Con**: el (L) es la mano izquierda y el (R) la derecha. Se sujetan de pie, como los
+  mandos del casco, apuntando con el extremo del stick.
+- **Un mando entero** (Pro Controller, 8BitDo en **modo Switch**): la mano derecha, o la izquierda si
+  ya hay un Joy-Con (R).
+
+| Mando | En el casco |
+|---|---|
+| Apuntar con el mando | Su mano |
+| Captura (Joy-Con L) · Home (Joy-Con R) · − (mando entero) | Centrarlo: apúntalo al frente y púlsalo |
+| ZR · R | Gatillo · agarre derechos |
+| ZL · L | Gatillo · agarre izquierdos |
+| Stick izquierdo | Girar la cabeza (la cámara); para andar, W A S D |
+| Stick derecho | Stick derecho |
+| Botón de abajo · derecha | A · B |
+| Cruceta abajo · arriba (Joy-Con L), botón izquierda · arriba (mando entero) | X · Y |
+| − (Joy-Con L) · + | Menú |
+
+`go run ./cmd/pad` enseña lo que dan los mandos (hacia dónde apunta cada uno, sticks, botones) sin
+abrir ventana.
+
 ## Qué hay dónde
 
 | Paquete | Qué hace |
 |---|---|
 | `headset` | `headset.Run(app.Options, step)`: el sustituto de `app.Run` de go-meta-quest. Ventana, cabeza, manos, ojos, paneles y capturas. |
+| `gamepad` | Lee hasta dos mandos con giroscopio por SDL3 (cargado con purego, sin cgo), uno por mano: sticks, botones, vibración y hacia dónde apunta cada uno. |
+| `motion` | Las cuentas del mando: un filtro de Mahony que junta giroscopio y acelerómetro, el sesgo del giroscopio aprendido en reposo, el centrado y un modelo de brazo. |
 | `desktopgl` | `gles.Functions` sobre el OpenGL 2.1 del ordenador, con los shaders GLSL ES pasados a GLSL 1.20. |
 | `cmd/playground` | El primer programa: el tablero de `cmd/panel` de go-meta-quest, en la ventana. |
+| `cmd/pad` | Lo que dan los mandos, en la terminal. |
 
 Un mismo programa elige casco o ventana con una etiqueta de compilación: `app.Run` en un fichero
 `//go:build android` y `headset.Run` en otro `//go:build !android`.
 
 Más detalle en [docs/](docs/): [cómo funciona](docs/1-como-funciona.md) y
-[las fases siguientes](docs/2-fases.md) (mandos con giroscopio y webcam).
+[las fases siguientes](docs/2-fases.md) (webcam).
 
 ## Requisitos
 
