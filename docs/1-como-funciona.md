@@ -63,6 +63,33 @@ Dos detalles del compositor, porque los renderizadores cuentan con el estado que
 - Los renderizadores activan sus atributos de vértice una vez y esperan que sigan activos. El
   compositor los apaga para dibujar los paneles y los deja como estaban al terminar.
 
+## Un programa del casco, en la ventana
+
+go-meta-quest, fuera del casco, no abre ninguna sesión: su `app.Run` le pasa el programa a quien se
+haya registrado con `app.UseStandIn`, y falla con `app.ErrNoHeadset` si nadie lo ha hecho. El
+paquete `headset` se registra al cargarse, así que basta con que el programa lo importe.
+
+`cmd/fvr` consigue eso sin tocar el programa. Lee los ficheros de su carpeta y `attach.Changes`
+decide, con las mismas reglas que `go build` (sufijo del nombre y línea `//go:build`), qué ve el
+compilador:
+
+- lo que solo se compila para el casco se enseña sin la restricción (si la restricción es el nombre,
+  con otro: `algo_android.go` pasa a `algo_android_fvr.go`);
+- lo que solo se compila fuera del casco se esconde;
+- se añade `fvr_attach.go`, con `import _ "github.com/akrck02/FVR/headset"`.
+
+Todo va en un fichero de *overlay* de `go build`, con un `go.work` temporal que junta FVR, los
+módulos que usa y el del programa, para que todos compilen contra las mismas carpetas. Si el programa
+se compila para el casco con etiquetas propias (`-tags`), las mismas cuentan para decidir qué fichero
+es de quién. El ejecutable corre en la carpeta temporal, como en el casco lejos de su código: lo que
+escriba donde corre (un socket, un fichero) no acaba en el repositorio del programa. Las opciones de la
+ventana (`-both`, `-capture`, `-frame`) llegan por el entorno (`FVR_BOTH`, `FVR_CAPTURE`,
+`FVR_FRAME`, leídas por `headset.WindowFromEnvironment`).
+
+Un programa cuyo `main` de escritorio no está apartado del casco por una etiqueta no encaja: fvr no
+puede saber cuál de los dos es el del casco. Con una etiqueta propia para el casco sí:
+`-tags casco` aparta el `main` de escritorio (`//go:build !casco`) y deja el del casco.
+
 ## Lo que no hay (aún)
 
 - `ShowsRoom` es siempre falso: no hay passthrough (fase 3, con la webcam).

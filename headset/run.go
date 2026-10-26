@@ -3,15 +3,18 @@
 // keyboard are the head and the controllers, the window shows the eyes, and the panels the program
 // asks for are laid over them as the headset would.
 //
-// A program picks the real headset or this one with a build tag: app.Run in a file for android,
-// headset.Run in one for the rest.
+// A program written for the headset runs here unchanged: importing this package makes app.Run,
+// off the headset, run in a window (app.UseStandIn). The fvr command builds such a program with it,
+// without touching the program's files.
 package headset
 
 import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/akrck02/FVR/desktopgl"
@@ -25,8 +28,12 @@ import (
 	"github.com/go-gl/glfw/v3.4/glfw"
 )
 
-// OpenGL and the window must stay on the thread that made them: the main one, on macOS.
-func init() { runtime.LockOSThread() }
+// OpenGL and the window must stay on the thread that made them: the main one, on macOS. And a
+// program that imports this package runs in it when it calls app.Run off the headset.
+func init() {
+	runtime.LockOSThread()
+	app.UseStandIn(Run)
+}
 
 // How the mouse and the arrows turn the head.
 const (
@@ -52,9 +59,21 @@ type Window struct {
 }
 
 // Run runs a program in a window of 1280 × 720 points until it returns false or the window is
-// closed. It must be called from main.
+// closed. It must be called from main. A program run this way (as one written for the headset is,
+// through app.Run) can still be asked for a capture and both eyes from the environment: FVR_CAPTURE
+// (Window.Capture), FVR_FRAME (Window.CaptureFrame) and FVR_BOTH=1 (Window.SideBySide).
 func Run(options app.Options, step func(app.Frame) bool) error {
-	return RunIn(Window{}, options, step)
+	return RunIn(WindowFromEnvironment(os.Getenv), options, step)
+}
+
+// WindowFromEnvironment is the window FVR_CAPTURE, FVR_FRAME and FVR_BOTH ask for, read with
+// lookup.
+func WindowFromEnvironment(lookup func(name string) string) Window {
+	window := Window{Capture: lookup("FVR_CAPTURE"), SideBySide: lookup("FVR_BOTH") == "1"}
+	if frame, err := strconv.Atoi(lookup("FVR_FRAME")); err == nil {
+		window.CaptureFrame = frame
+	}
+	return window
 }
 
 // RunIn runs a program in the window asked for, as Run.

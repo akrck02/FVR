@@ -15,6 +15,28 @@ go run ./cmd/playground -both    # los dos ojos, uno al lado del otro
 go run ./cmd/playground -capture captura.png   # guarda un fotograma y termina
 ```
 
+## Juegos del casco, tal cual
+
+`cmd/fvr` ejecuta en la ventana cualquier programa escrito para el casco con `app.Run` o
+`explore.Run`, sin tocar un solo fichero suyo:
+
+```bash
+go run ./cmd/fvr ../go-meta-quest/cmd/explorer               # la isla, para andar por ella
+go run ./cmd/fvr -both ../go-meta-quest/cmd/panel            # los dos ojos
+go run ./cmd/fvr -capture isla.png -frame 60 ../go-meta-quest/cmd/explorer
+go run ./cmd/fvr ../mi-juego -- -nivel 2                     # lo que va tras -- es del juego
+go run ./cmd/fvr -tags demo,quest ../otro-juego              # las etiquetas con que se compila para el casco
+```
+
+Compila el programa con un `go.work` temporal (FVR, go-renderer, go-meta-quest y el módulo del
+programa) y `go build -overlay`, y lo ejecuta en esa carpeta temporal, lejos de su código como en el
+casco: los ficheros que solo son del casco (`//go:build android`,
+`_android.go`) se le enseñan al compilador sin esa restricción, los que solo son del ordenador (el
+típico `elsewhere.go` que dice «compílame para el casco») se esconden, y se añade uno que importa
+`headset`. Ese paquete se registra con `app.UseStandIn`, así que el `app.Run` del programa abre la
+ventana de FVR en vez de las gafas. Funcionan `explorer`, `panel`, `cube`, `room` (sin passthrough:
+el cubo sobre el cielo) y `clear`.
+
 ## Controles
 
 | Tecla / ratón | En el casco |
@@ -69,9 +91,11 @@ abrir ventana.
 | `desktopgl` | `gles.Functions` sobre el OpenGL 2.1 del ordenador, con los shaders GLSL ES pasados a GLSL 1.20. |
 | `cmd/playground` | El primer programa: el tablero de `cmd/panel` de go-meta-quest, en la ventana. |
 | `cmd/pad` | Lo que dan los mandos, en la terminal. |
+| `attach` | Qué enseñar al compilador para que un programa del casco se compile en el ordenador: qué ficheros mostrar sin su restricción, cuáles esconder y el que se añade. |
+| `cmd/fvr` | Ejecuta un programa del casco en la ventana (con `attach` y `go build -overlay`). |
 
-Un mismo programa elige casco o ventana con una etiqueta de compilación: `app.Run` en un fichero
-`//go:build android` y `headset.Run` en otro `//go:build !android`.
+Un programa del casco no necesita nada para correr aquí: `cmd/fvr` lo lanza tal cual. Uno que quiera
+la ventana por su cuenta importa `headset` (o llama a `headset.Run` directamente, como `cmd/playground`).
 
 Más detalle en [docs/](docs/): [cómo funciona](docs/1-como-funciona.md) y
 [las fases siguientes](docs/2-fases.md) (webcam).

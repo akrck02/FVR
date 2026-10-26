@@ -223,3 +223,14 @@ func TestAPadsLeftStickTurnsTheHeadAndNotTheControllers(test *testing.T) {
 		test.Fatalf("a stick at rest turned the head to %+v", resting)
 	}
 }
+
+func TestTheEnvironmentAsksForACaptureAndBothEyes(test *testing.T) {
+	values := map[string]string{"FVR_CAPTURE": "frame.png", "FVR_FRAME": "40", "FVR_BOTH": "1"}
+	window := WindowFromEnvironment(func(name string) string { return values[name] })
+	if window.Capture != "frame.png" || window.CaptureFrame != 40 || !window.SideBySide {
+		test.Fatalf("window %+v", window)
+	}
+	if empty := WindowFromEnvironment(func(string) string { return "" }); empty != (Window{}) {
+		test.Fatalf("an empty environment asked for %+v", empty)
+	}
+}
